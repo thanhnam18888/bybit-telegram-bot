@@ -8,7 +8,8 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
-# Danh sách người bán quen
+from payment_mapping import payment_mapping
+
 FAMILIAR_SELLERS = [
   "🐱‍👤 VB",
   "FrontMan",
@@ -160,32 +161,31 @@ FAMILIAR_SELLERS = [
   "Cuteshark"
 ]
 
-headers = {
+headers = {{
     "User-Agent": "Mozilla/5.0",
     "Content-Type": "application/json",
-}
+}}
 
 def send_telegram_message(message):
-    payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "HTML"}
+    payload = {{"chat_id": CHAT_ID, "text": message, "parse_mode": "HTML"}}
     try:
         requests.post(TELEGRAM_API, data=payload, timeout=10)
     except Exception as e:
         print("Lỗi gửi Telegram:", e)
 
 def translate_payment(payment_ids):
-    from payment_mapping import payment_mapping
     return ", ".join([payment_mapping.get(pid, pid) for pid in payment_ids])
 
-def fetch_ads():
+def fetch_ads(page):
     url = "https://api2.bybit.com/fiat/otc/item/online"
-    data = {
+    data = {{
         "userId": "",
         "tokenId": "USDT",
         "currencyId": "RUB",
         "payment": [],
         "side": "1",
         "size": "10",
-        "page": "1",
+        "page": str(page),
         "amount": "",
         "vaMaker": False,
         "bulkMaker": False,
@@ -194,26 +194,37 @@ def fetch_ads():
         "sortType": "TRADE_PRICE",
         "paymentPeriod": [],
         "itemRegion": 1,
-    }
+    }}
     try:
         res = requests.post(url, headers=headers, json=data, timeout=10)
         if res.status_code == 200:
-            return res.json().get("result", {}).get("items", [])
+            return res.json().get("result", {{}}).get("items", [])
     except Exception as e:
         print("Lỗi lấy dữ liệu:", e)
     return []
 
 seen_keys = set()
 
+
+min_price = float(os.getenv("MIN_PRICE", "80.0"))
+max_price = float(os.getenv("MAX_PRICE", "90.0"))
+
 while True:
-    ads = fetch_ads()
-    for ad in ads:
+    all_ads = []
+    for page in range(1, 11):
+        all_ads.extend(fetch_ads(page))
+        time.sleep(0.2)
+
+    for ad in all_ads:
         nickname = ad.get("nickName")
         price = float(ad.get("price", 0))
         max_amount = ad.get("maxAmount", 0)
+        min_amount = ad.get("minAmount", 0)
+        if min_amount < 20000 or not (min_price <= price <= max_price):
+            continue
         remark = ad.get("remark", "").strip()
         payments = translate_payment(ad.get("payments", []))
-        key = f"{nickname}-{price}-{max_amount}-{remark}"
+        key = f"{nickname}-{price}-{min_amount}-{max_amount}-{remark}"
         if nickname in FAMILIAR_SELLERS and key not in seen_keys:
             seen_keys.add(key)
             message = (
